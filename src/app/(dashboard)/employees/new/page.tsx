@@ -32,6 +32,7 @@ interface Position {
 
 export default function NewEmployeePage() {
   const [loading, setLoading] = useState(false)
+  const [loadingDeps, setLoadingDeps] = useState(true)
   const [departments, setDepartments] = useState<Department[]>([])
   const [positions, setPositions] = useState<Position[]>([])
   const [employeeNumber, setEmployeeNumber] = useState('')
@@ -50,10 +51,14 @@ export default function NewEmployeePage() {
       .eq('is_active', true)
       .order('name')
     setDepartments(data || [])
+    setLoadingDeps(false)
   }
 
-    async function fetchPositions(departmentId: string | null) {
-    if (!departmentId) return
+  async function fetchPositions(departmentId: string | null) {
+    if (!departmentId) {
+      setPositions([])
+      return
+    }
     const { data } = await supabase
       .from('positions')
       .select('*')
@@ -85,48 +90,38 @@ export default function NewEmployeePage() {
     setLoading(true)
 
     const formData = new FormData(e.currentTarget)
-    const data = {
+    const payload = {
       employee_number: formData.get('employee_number') as string,
       full_name: formData.get('full_name') as string,
       email: formData.get('email') as string,
-      phone: formData.get('phone') as string || undefined,
-      address: formData.get('address') as string || undefined,
+      phone: (formData.get('phone') as string) || undefined,
+      address: (formData.get('address') as string) || undefined,
       department_id: formData.get('department_id') as string,
       position_id: formData.get('position_id') as string,
       hire_date: formData.get('hire_date') as string,
-      employment_status: formData.get('employment_status') as string,
+      employment_status: (formData.get('employment_status') as string) || 'probation',
       salary: formData.get('salary') ? parseFloat(formData.get('salary') as string) : undefined,
-      emergency_contact_name: formData.get('emergency_contact_name') as string || undefined,
-      emergency_contact_phone: formData.get('emergency_contact_phone') as string || undefined,
+      emergency_contact_name: (formData.get('emergency_contact_name') as string) || undefined,
+      emergency_contact_phone: (formData.get('emergency_contact_phone') as string) || undefined,
     }
 
-    // Create auth user first
-    const { data: authUser, error: authError } = await supabase.auth.admin.createUser({
-      email: data.email,
-      password: 'Welcome123!', // Default password, should be changed
-      email_confirm: true,
-      user_metadata: {
-        full_name: data.full_name,
-        employee_id: data.employee_number,
-      },
-    })
-
-    if (authError) {
-      toast.error(`Auth error: ${authError.message}`)
+    // Validate position selected
+    if (!payload.position_id) {
+      toast.error('Please select a position')
       setLoading(false)
       return
     }
 
-    // Create employee record
-    const { error: empError } = await supabase
-      .from('employees')
-      .insert({
-        ...data,
-        user_id: authUser.user?.id,
-      })
+    const res = await fetch('/api/employees', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
 
-    if (empError) {
-      toast.error(`Error creating employee: ${empError.message}`)
+    const result = await res.json()
+
+    if (!res.ok) {
+      toast.error(result.error || 'Failed to create employee')
       setLoading(false)
       return
     }
