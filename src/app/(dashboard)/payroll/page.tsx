@@ -34,6 +34,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Plus, Loader2, Wallet, CheckCircle, XCircle, Eye } from 'lucide-react'
 import { toast } from 'sonner'
+import { ErrorState, LoadingState } from '@/components/ui/error-state'
 
 interface PayrollEntry {
   id: string
@@ -64,6 +65,7 @@ const MONTHS = [
 export default function PayrollPage() {
   const [entries, setEntries] = useState<PayrollEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [monthFilter, setMonthFilter] = useState('')
   const [yearFilter, setYearFilter] = useState(new Date().getFullYear().toString())
@@ -77,22 +79,31 @@ export default function PayrollPage() {
 
   async function fetchPayroll() {
     setLoading(true)
-    let query = supabase
-      .from('payroll_entries')
-      .select('*, employees(full_name, employee_number, departments(name))')
-      .order('payroll_year', { ascending: false })
-      .order('payroll_month', { ascending: false })
+    setError(null)
+    try {
+      let query = supabase
+        .from('payroll_entries')
+        .select('*, employees(full_name, employee_number, departments(name))')
+        .order('payroll_year', { ascending: false })
+        .order('payroll_month', { ascending: false })
 
-    if (yearFilter) {
-      query = query.eq('payroll_year', parseInt(yearFilter))
-    }
-    if (monthFilter) {
-      query = query.eq('payroll_month', parseInt(monthFilter))
-    }
+      if (yearFilter) {
+        query = query.eq('payroll_year', parseInt(yearFilter))
+      }
+      if (monthFilter) {
+        query = query.eq('payroll_month', parseInt(monthFilter))
+      }
 
-    const { data } = await query
-    setEntries(data || [])
-    setLoading(false)
+      const { data, error: err } = await query
+      if (err) throw new Error(err.message)
+      setEntries(data || [])
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load payroll data'
+      setError(message)
+      console.error('Error fetching payroll:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function handleRunPayroll() {
@@ -295,9 +306,13 @@ export default function PayrollPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-            </div>
+            <LoadingState message="Loading payroll records..." />
+          ) : error ? (
+            <ErrorState
+              title="Failed to load payroll"
+              message={error}
+              onRetry={fetchPayroll}
+            />
           ) : entries.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-slate-400">
               <Wallet className="h-12 w-12 mb-3 opacity-50" />

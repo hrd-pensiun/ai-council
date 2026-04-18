@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { ErrorState, LoadingState } from '@/components/ui/error-state'
 
 interface Department {
   id: string
@@ -36,6 +37,7 @@ export default function NewEmployeePage() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [positions, setPositions] = useState<Position[]>([])
   const [employeeNumber, setEmployeeNumber] = useState('')
+  const [error, setError] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
 
@@ -45,13 +47,21 @@ export default function NewEmployeePage() {
   }, [])
 
   async function fetchDepartments() {
-    const { data } = await supabase
-      .from('departments')
-      .select('*')
-      .eq('is_active', true)
-      .order('name')
-    setDepartments(data || [])
-    setLoadingDeps(false)
+    try {
+      const { data, error: err } = await supabase
+        .from('departments')
+        .select('*')
+        .eq('is_active', true)
+        .order('name')
+      if (err) throw new Error(err.message)
+      setDepartments(data || [])
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load departments'
+      setError(message)
+      console.error('Error fetching departments:', err)
+    } finally {
+      setLoadingDeps(false)
+    }
   }
 
   async function fetchPositions(departmentId: string | null) {
@@ -129,6 +139,26 @@ export default function NewEmployeePage() {
     toast.success('Employee created successfully!')
     router.push('/employees')
     router.refresh()
+  }
+
+  if (loadingDeps) {
+    return (
+      <div className="p-6 lg:p-8">
+        <LoadingState message="Loading form..." />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 lg:p-8">
+        <ErrorState
+          title="Failed to load data"
+          message={error}
+          onRetry={() => { setError(null); setLoadingDeps(true); fetchDepartments(); }}
+        />
+      </div>
+    )
   }
 
   return (

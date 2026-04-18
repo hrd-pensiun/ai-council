@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select'
 import { ArrowLeft, Loader2, User, Mail, Phone, MapPin, Building2, Calendar, Briefcase } from 'lucide-react'
 import { toast } from 'sonner'
+import { ErrorState, LoadingState } from '@/components/ui/error-state'
 
 interface Department {
   id: string
@@ -65,6 +66,7 @@ export default function EmployeeDetailPage({
   const [departments, setDepartments] = useState<Department[]>([])
   const [positions, setPositions] = useState<Position[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const router = useRouter()

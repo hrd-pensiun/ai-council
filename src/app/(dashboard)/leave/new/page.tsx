@@ -19,6 +19,7 @@ import { ArrowLeft, Loader2, Calendar } from 'lucide-react'
 import { format, differenceInBusinessDays, addDays } from 'date-fns'
 import { id } from 'date-fns/locale'
 import { toast } from 'sonner'
+import { ErrorState, LoadingState } from '@/components/ui/error-state'
 
 interface LeaveType {
   id: string
@@ -39,6 +40,8 @@ interface LeaveBalance {
 export default function NewLeavePage() {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([])
   const [balances, setBalances] = useState<LeaveBalance[]>([])
+  const [fetchingData, setFetchingData] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [employeeId, setEmployeeId] = useState<string | null>(null)
   const [formData, setFormData] = useState({
@@ -55,39 +58,53 @@ export default function NewLeavePage() {
   }, [])
 
   async function fetchData() {
-    // Get current user
-    const { data: userData } = await supabase.auth.getUser()
-    if (!userData.user) return
+    setFetchingData(true)
+    setError(null)
+    try {
+      // Get current user
+      const { data: userData } = await supabase.auth.getUser()
+      if (!userData.user) {
+        setFetchingData(false)
+        return
+      }
 
-    // Get employee record
-    const { data: empData } = await supabase
-      .from('employees')
-      .select('id')
-      .eq('user_id', userData.user.id)
-      .single()
+      // Get employee record
+      const { data: empData, error: empErr } = await supabase
+        .from('employees')
+        .select('id')
+        .eq('user_id', userData.user.id)
+        .single()
 
-    if (!empData) {
-      toast.error('Employee record not found')
-      return
+      if (empErr || !empData) {
+        throw new Error(empErr?.message || 'Employee record not found')
+      }
+      setEmployeeId(empData.id)
+
+      // Get leave types
+      const { data: typesData, error: typesErr } = await supabase
+        .from('leave_types')
+        .select('*')
+        .eq('is_active', true)
+        .order('name')
+      if (typesErr) throw new Error(typesErr.message)
+      setLeaveTypes(typesData || [])
+
+      // Get current year balances
+      const year = new Date().getFullYear()
+      const { data: balData, error: balErr } = await supabase
+        .from('leave_balances')
+        .select('*, leave_types(name, code)')
+        .eq('employee_id', empData.id)
+        .eq('year', year)
+      if (balErr) throw new Error(balErr.message)
+      setBalances(balData || [])
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load data'
+      setError(message)
+      console.error('Error fetching leave data:', err)
+    } finally {
+      setFetchingData(false)
     }
-    setEmployeeId(empData.id)
-
-    // Get leave types
-    const { data: typesData } = await supabase
-      .from('leave_types')
-      .select('*')
-      .eq('is_active', true)
-      .order('name')
-    setLeaveTypes(typesData || [])
-
-    // Get current year balances
-    const year = new Date().getFullYear()
-    const { data: balData } = await supabase
-      .from('leave_balances')
-      .select('*, leave_types(name, code)')
-      .eq('employee_id', empData.id)
-      .eq('year', year)
-    setBalances(balData || [])
   }
 
   function calculateDays() {
@@ -152,6 +169,16 @@ export default function NewLeavePage() {
 
   return (
     <div className="p-6 lg:p-8">
+      {fetchingData ? (
+        <LoadingState message="Loading leave form..." />
+      ) : error ? (
+        <ErrorState
+          title="Failed to load data"
+          message={error}
+          onRetry={fetchData}
+        />
+      ) : (
+      <>
       {/* Header */}
       <div className="mb-6">
         <Link href="/leave">
@@ -292,6 +319,8 @@ export default function NewLeavePage() {
           </div>
         </form>
       </div>
+      </>
+      )}
     </div>
   )
 }

@@ -21,10 +21,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Plus, Loader2, Plane, Calendar, Clock } from 'lucide-react'
+import { Plus, Plane, Calendar, Clock } from 'lucide-react'
 import { format } from 'date-fns'
 import { id } from 'date-fns/locale'
 import { toast } from 'sonner'
+import { ErrorState, LoadingState } from '@/components/ui/error-state'
 
 interface LeaveRequest {
   id: string
@@ -59,6 +60,7 @@ export default function LeavePage() {
   const [requests, setRequests] = useState<LeaveRequest[]>([])
   const [balances, setBalances] = useState<LeaveBalance[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
   const supabase = createClient()
 
@@ -68,49 +70,57 @@ export default function LeavePage() {
 
   async function fetchData() {
     setLoading(true)
+    setError(null)
+    try {
+      // Get current user
+      const { data: userData } = await supabase.auth.getUser()
+      if (!userData.user) {
+        setLoading(false)
+        return
+      }
 
-    // Get current user
-    const { data: userData } = await supabase.auth.getUser()
-    if (!userData.user) {
+      // Get employee record
+      const { data: empData, error: empErr } = await supabase
+        .from('employees')
+        .select('id')
+        .eq('user_id', userData.user.id)
+        .single()
+
+      if (empErr || !empData) {
+        throw new Error(empErr?.message || 'Employee record not found')
+      }
+
+      // Fetch leave requests
+      let query = supabase
+        .from('leave_requests')
+        .select('*, employees(full_name, employee_number), leave_types(name, code)')
+        .order('created_at', { ascending: false })
+
+      if (statusFilter) {
+        query = query.eq('status', statusFilter)
+      }
+
+      const { data: reqData, error: reqErr } = await query
+      if (reqErr) throw new Error(reqErr.message)
+      setRequests(reqData || [])
+
+      // Fetch balances
+      const year = new Date().getFullYear()
+      const { data: balData, error: balErr } = await supabase
+        .from('leave_balances')
+        .select('*, leave_types(name, code)')
+        .eq('employee_id', empData.id)
+        .eq('year', year)
+
+      if (balErr) throw new Error(balErr.message)
+      setBalances(balData || [])
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load leave data'
+      setError(message)
+      console.error('Error fetching leave data:', err)
+    } finally {
       setLoading(false)
-      return
     }
-
-    // Get employee record
-    const { data: empData } = await supabase
-      .from('employees')
-      .select('id')
-      .eq('user_id', userData.user.id)
-      .single()
-
-    if (!empData) {
-      setLoading(false)
-      return
-    }
-
-    // Fetch leave requests
-    let query = supabase
-      .from('leave_requests')
-      .select('*, employees(full_name, employee_number), leave_types(name, code)')
-      .order('created_at', { ascending: false })
-
-    if (statusFilter) {
-      query = query.eq('status', statusFilter)
-    }
-
-    const { data: reqData } = await query
-    setRequests(reqData || [])
-
-    // Fetch balances
-    const year = new Date().getFullYear()
-    const { data: balData } = await supabase
-      .from('leave_balances')
-      .select('*, leave_types(name, code)')
-      .eq('employee_id', empData.id)
-      .eq('year', year)
-
-    setBalances(balData || [])
-    setLoading(false)
   }
 
   async function handleApprove(id: string) {
@@ -237,9 +247,13 @@ export default function LeavePage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-            </div>
+            <LoadingState message="Loading leave requests..." />
+          ) : error ? (
+            <ErrorState
+              title="Failed to load leave requests"
+              message={error}
+              onRetry={fetchData}
+            />
           ) : requests.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-slate-400">
               <Plane className="h-12 w-12 mb-3 opacity-50" />

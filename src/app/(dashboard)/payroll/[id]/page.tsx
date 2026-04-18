@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ArrowLeft, Loader2, Download, Printer } from 'lucide-react'
 import { toast } from 'sonner'
+import { ErrorState, LoadingState } from '@/components/ui/error-state'
 
 interface PayrollDetail {
   id: string
@@ -61,6 +62,7 @@ export default function PayrollDetailPage() {
   const params = useParams()
   const [payroll, setPayroll] = useState<PayrollDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const supabase = createClient()
 
   useEffect(() => {
@@ -70,24 +72,30 @@ export default function PayrollDetailPage() {
 
   async function fetchPayroll(id: string) {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('payroll_entries')
-      .select(`
-        *,
-        employees(full_name, employee_number, email, departments(name), positions(title)),
-        payroll_details(amount, payroll_components(name, code, type))
-      `)
-      .eq('id', id)
-      .single()
+    setError(null)
+    try {
+      const { data, error } = await supabase
+        .from('payroll_entries')
+        .select(`
+          *,
+          employees(full_name, employee_number, email, departments(name), positions(title)),
+          payroll_details(amount, payroll_components(name, code, type))
+        `)
+        .eq('id', id)
+        .single()
 
-    if (error || !data) {
-      toast.error('Payroll not found')
+      if (error || !data) {
+        throw new Error(error?.message || 'Payroll not found')
+      }
+
+      setPayroll(data)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load payroll'
+      setError(message)
+      console.error('Error fetching payroll:', err)
+    } finally {
       setLoading(false)
-      return
     }
-
-    setPayroll(data)
-    setLoading(false)
   }
 
   async function handleUpdateStatus(status: string) {
@@ -112,8 +120,23 @@ export default function PayrollDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+      <div className="p-6 lg:p-8">
+        <LoadingState message="Loading payroll..." />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 lg:p-8">
+        <ErrorState
+          title="Failed to load payroll"
+          message={error}
+          onRetry={() => {
+            const id = params.id as string
+            if (id) fetchPayroll(id)
+          }}
+        />
       </div>
     )
   }
